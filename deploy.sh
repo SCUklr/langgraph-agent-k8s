@@ -12,7 +12,7 @@ set -euo pipefail
 # 原因：同名 tag + imagePullPolicy: IfNotPresent 时，K8s 和节点运行时都可能继续用旧镜像
 #（实测踩过：minikube image load 不会覆盖已存在的同名 tag，Pod 一直在跑旧代码）。
 # 生产环境通用做法是用不可变 tag：git SHA 或构建流水线号。
-IMAGE="langgraph-agent:1.2"
+IMAGE="langgraph-agent:1.3"
 NS="ai-agent"
 DEPLOY="langgraph-agent"
 
@@ -41,6 +41,7 @@ kubectl -n "$NS" delete secret deepseek --ignore-not-found >/dev/null 2>&1 || tr
 kubectl -n "$NS" create secret generic agent-secrets \
     --from-literal=DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" \
     --from-literal=DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}" \
+    --from-literal=BOCHA_API_KEY="${BOCHA_API_KEY:-}" \
     --from-literal=TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
     --dry-run=client -o yaml | kubectl apply -f -
 

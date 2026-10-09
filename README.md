@@ -11,7 +11,7 @@
 | 虚拟环境 | `/Users/konglingran030521/venvs/agent` （Python 3.12.13，uv 创建） |
 | 项目目录 | `/Users/konglingran030521/langgraph-starter` |
 | 模型 | DeepSeek（`deepseek-chat`），凭证来自 `~/.zshrc` |
-| 工具 | `get_weather`（模拟）、`add`（本地）、`web_search`（Tavily 真实联网） |
+| 工具 | `get_weather`（模拟）、`add`（本地）、`web_search`（博查 + Tavily 双源容灾） |
 
 已安装的关键包：
 
@@ -159,7 +159,7 @@ START → model ──(有 tool_calls)──→ tools
 |---|---|---|
 | `get_weather` | 模拟 | 返回内置的假数据，用于演示"工具调用"机制本身 |
 | `add` | 本地计算 | 演示最简单的纯函数工具 |
-| **`web_search`** | **真实联网** | 走 Tavily API，能查实时信息 |
+| **`web_search`** | **真实联网** | **多 Provider 容灾**：博查（国内主）+ Tavily（境外汇备） |
 
 **模型怎么决定用不用工具？** 看 docstring。给它一个真实问题的实测结果：
 
@@ -219,6 +219,41 @@ _BACKOFF_SECONDS = (0.8, 2.0)
 > **通用原则**：任何跨网络的外部调用都必须有重试。
 > 单次失败率 1% 听起来很低，但一个 Agent 一轮对话可能调 3~5 次外部 API，
 > 累积失败率就变成 5%~15% —— 用户会经常看到报错。
+
+### 🔀 更进一步：多 Provider 容灾（国内优先）
+
+重试能缓解问题，但**解决不了"服务商本身挂了"**。所以 `web_search` 做了 Provider 抽象：
+
+```python
+_SEARCH_PROVIDERS = [
+    ("博查",   _search_bocha),    # 主：国内直连
+    ("Tavily", _search_tavily),   # 备：境外汇备
+]
+```
+
+**为什么主源选国内的博查？** 实测延迟差了十几倍：
+
+| Provider | 网络路径 | 实测延迟 | 稳定性 |
+|---|---|---|---|
+| **博查**（api.bochaai.com） | 国内直连 | **0.19 ~ 0.33s** | 稳定 |
+| Tavily（api.tavily.com） | 走代理出口 | 1.05 ~ 4.16s | 偶发 TLS 中断 |
+
+**关键结论**：国内 API **挂不挂代理都能用**——
+
+- 不挂代理：直连，0.2s
+- 挂代理：Clash 按规则让国内域名走直连，仍然 0.2s
+
+而国外 API **不挂代理完全不通**，挂了也只有 1~4s 且偶发失败。
+
+**容灾验证**（实测）：故意把主源的 Key 改成无效值 →
+
+```
+✅ 自动降级成功！耗时 4.16s
+实际生效的源: 内容首行 = 搜索摘要：The sources indicate that...
+```
+
+> **这是生产 Agent 的标准做法**：单一外部依赖必然成为故障点。
+> 抽象出 Provider 层 + 按优先级降级，是"高可用"最基础也最有效的一招。
 
 ---
 
