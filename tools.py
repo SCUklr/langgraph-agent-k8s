@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 from langchain_core.tools import tool
@@ -49,6 +50,40 @@ def add(a: int, b: int) -> int:
 
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
 
+# 重试策略：外部 API 调用必须做重试。
+# 实测教训：经过代理访问境外 API 时，偶发 TLS 握手中断
+# （SSL: UNEXPECTED_EOF_WHILE_READING），且同一批请求延迟会在 1s 和 11s 之间跳动
+# ——说明是代理节点不稳定/自动切换导致。单次请求失败率虽低，但用户会直接看到报错。
+_MAX_ATTEMPTS = 3
+_BACKOFF_SECONDS = (0.8, 2.0)  # 第 1 次重试等 0.8s，第 2 次等 2s
+
+
+def _post_with_retry(payload: dict) -> tuple[dict, int]:
+    """带指数退避的 POST。返回 (响应 JSON, 实际尝试次数)。
+
+    只对网络层错误重试；4xx（如 Key 无效、配额用尽）属于业务错误，重试没有意义。
+    """
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            resp = httpx.post(TAVILY_ENDPOINT, json=payload, timeout=30.0)
+            resp.raise_for_status()
+            return resp.json(), attempt + 1
+        except httpx.HTTPStatusError as exc:
+            # 5xx 是服务端临时故障，可重试；4xx 是请求本身的问题，直接抛出
+            if exc.response.status_code < 500:
+                raise
+            last_exc = exc
+        except httpx.TransportError as exc:
+            # 覆盖 ConnectError / ReadTimeout / RemoteProtocolError 等网络层错误
+            last_exc = exc
+
+        if attempt < _MAX_ATTEMPTS - 1:
+            time.sleep(_BACKOFF_SECONDS[min(attempt, len(_BACKOFF_SECONDS) - 1)])
+
+    assert last_exc is not None
+    raise last_exc
+
 
 @tool
 def web_search(query: str) -> str:
@@ -71,29 +106,28 @@ def web_search(query: str) -> str:
             "请基于已有知识回答，并明确告知用户这部分内容未经联网核实。"
         )
 
+    payload = {
+        "api_key": api_key,
+        "query": query,
+        "max_results": 5,
+        "search_depth": "basic",
+        "include_answer": True,
+    }
+
     try:
-        resp = httpx.post(
-            TAVILY_ENDPOINT,
-            json={
-                "api_key": api_key,
-                "query": query,
-                "max_results": 5,
-                "search_depth": "basic",
-                "include_answer": True,
-            },
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        data, attempts = _post_with_retry(payload)
     except Exception as exc:  # noqa: BLE001
         # 工具必须自己消化异常：工具报错会让整个 Agent 中断，
         # 而返回一句"搜索失败"让模型继续用已有知识回答，体验好得多。
         return (
-            f"[搜索失败] {type(exc).__name__}: {exc}。"
-            "请基于已有知识回答，并说明这部分未能联网核实。"
+            f"[搜索失败] 已重试 {_MAX_ATTEMPTS} 次仍未成功"
+            f"（{type(exc).__name__}: {exc}）。"
+            "请基于已有知识回答，并明确告知用户这部分未能联网核实。"
         )
 
     lines: list[str] = []
+    if attempts > 1:
+        lines.append(f"（注：第 {attempts} 次尝试才成功，网络有波动）")
     if data.get("answer"):
         lines.append(f"搜索摘要：{data['answer']}")
     for idx, item in enumerate(data.get("results", [])[:5], 1):

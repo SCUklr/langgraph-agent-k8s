@@ -12,7 +12,7 @@ set -euo pipefail
 # 原因：同名 tag + imagePullPolicy: IfNotPresent 时，K8s 和节点运行时都可能继续用旧镜像
 #（实测踩过：minikube image load 不会覆盖已存在的同名 tag，Pod 一直在跑旧代码）。
 # 生产环境通用做法是用不可变 tag：git SHA 或构建流水线号。
-IMAGE="langgraph-agent:1.1"
+IMAGE="langgraph-agent:1.2"
 NS="ai-agent"
 DEPLOY="langgraph-agent"
 
