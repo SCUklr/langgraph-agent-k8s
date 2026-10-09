@@ -1,0 +1,110 @@
+# LangGraph Agent 在 Kubernetes 上的部署清单
+# 应用方式：kubectl apply -f k8s/app.yaml
+# （Secret 由 deploy.sh 从环境变量生成，不写进这个文件）
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-agent
+  labels:
+    app.kubernetes.io/part-of: langgraph-agent
+
+---
+# 持久化存储：保存 LangGraph 的 SQLite 检查点（对话记忆）
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-data
+  namespace: ai-agent
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langgraph-agent
+  namespace: ai-agent
+  labels:
+    app: langgraph-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langgraph-agent
+  template:
+    metadata:
+      labels:
+        app: langgraph-agent
+    spec:
+      containers:
+        - name: agent
+          image: langgraph-agent:1.0
+          # minikube image load 已经把镜像塞进节点，不需要去远程仓库拉
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          # API Key 从 Secret 注入，不写在镜像里
+          envFrom:
+            - secretRef:
+                name: deepseek
+          env:
+            - name: DEEPSEEK_MODEL
+              value: deepseek-chat
+            - name: CHECKPOINT_DB
+              value: /data/checkpoints.sqlite
+
+          # 资源配额：云计算里必须声明，否则会被调度器视为"无底线"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+          # 两类探针语义不同：liveness 失败会重启容器，readiness 失败只是摘流量
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: agent-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langgraph-agent
+  namespace: ai-agent
+  labels:
+    app: langgraph-agent
+spec:
+  type: ClusterIP
+  selector:
+    app: langgraph-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000

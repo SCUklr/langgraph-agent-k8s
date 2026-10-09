@@ -1,0 +1,31 @@
+[project]
+name = "langgraph-starter"
+version = "0.1.0"
+description = "LangChain + LangGraph 本地开发起步模板（DeepSeek 版）"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain>=1.0",
+    "langchain-openai>=1.0",
+    "langchain-deepseek>=1.0",
+    "langchain-chroma>=1.0",
+    "langchain-mcp-adapters>=0.1",
+    "langgraph>=1.0",
+    "langgraph-checkpoint-sqlite>=2.0",
+    "python-dotenv>=1.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    # 必须锁死：opentelemetry-api 升到 1.45+ 会让 chromadb 1.5.x 崩溃
+    # （ImportError: cannot import name '_ExtendedAttributes'）
+    "opentelemetry-api==1.42.1",
+]
+
+[project.optional-dependencies]
+# 只有要用 LangGraph Studio / Server 时才需要
+studio = ["langgraph-cli[inmem]>=0.4"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["agent", "llm", "tools"]
