@@ -4,7 +4,7 @@
     ~/venvs/agent/bin/python -m uvicorn server:app --reload
 
 容器运行：
-    docker run -p 8000:8000 -e DEEPSEEK_API_KEY=sk-xxx langgraph-agent:1.0
+    docker run -p 8000:8000 -e DEEPSEEK_API_KEY=your-api-key langgraph-agent:1.0
 
 接口：
     GET  /health            健康检查（K8s livenessProbe 用）
