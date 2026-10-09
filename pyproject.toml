@@ -14,6 +14,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
     # 必须锁死：opentelemetry-api 升到 1.45+ 会让 chromadb 1.5.x 崩溃
     # （ImportError: cannot import name '_ExtendedAttributes'）
     "opentelemetry-api==1.42.1",

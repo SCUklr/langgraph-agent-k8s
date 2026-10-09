@@ -43,7 +43,7 @@ spec:
     spec:
       containers:
         - name: agent
-          image: langgraph-agent:1.0
+          image: langgraph-agent:1.1
           # minikube image load 已经把镜像塞进节点，不需要去远程仓库拉
           imagePullPolicy: IfNotPresent
           ports:
@@ -54,7 +54,7 @@ spec:
           # API Key 从 Secret 注入，不写在镜像里
           envFrom:
             - secretRef:
-                name: deepseek
+                name: agent-secrets
           env:
             - name: DEEPSEEK_MODEL
               value: deepseek-chat
